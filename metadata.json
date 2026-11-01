@@ -1,0 +1,6 @@
+{
+  "name": "GAON FUND",
+  "description": "Bhadesar Village Fund Transparency & Public Recordkeeping Platform",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

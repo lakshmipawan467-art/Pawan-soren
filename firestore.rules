@@ -1,0 +1,159 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return request.auth != null &&
+             'email' in request.auth.token &&
+             (
+               request.auth.token.email in ['lakshmipawan467@gmail.com', 'bhadesarbishrupa@gmail.com'] ||
+               (exists(/databases/$(database)/documents/system/config) &&
+                get(/databases/$(database)/documents/system/config).data.adminEmail == request.auth.token.email)
+             );
+    }
+
+    // --- Validation Helpers ---
+
+    function isValidCategory(data) {
+      return data.nameHindi is string && data.nameHindi.size() > 0 && data.nameHindi.size() <= 100 &&
+             data.isActive is bool;
+    }
+
+    function isValidDonation(data) {
+      return data.receiptNumber is string && data.receiptNumber.size() > 0 &&
+             data.amount is number && data.amount > 0 &&
+             data.categoryId is string && data.categoryId.size() > 0 &&
+             data.categoryName is string && data.categoryName.size() > 0 &&
+             data.isVerified is bool &&
+             data.date is string && data.date.size() >= 8;
+    }
+
+    function isValidExpense(data) {
+      return data.voucherNumber is string && data.voucherNumber.size() > 0 &&
+             data.amount is number && data.amount > 0 &&
+             data.categoryId is string && data.categoryId.size() > 0 &&
+             data.purpose is string && data.purpose.size() > 0 &&
+             data.date is string &&
+             data.status in [
+               'Pending Approval',
+               'Approved',
+               'Rejected',
+               'Payment Pending',
+               'Paid – Awaiting Verification',
+               'Verified and Recorded'
+             ];
+    }
+
+    function isValidProject(data) {
+      return data.name is string && data.name.size() > 0 &&
+             data.categoryId is string &&
+             data.approvedBudget is number && data.approvedBudget >= 0 &&
+             data.status is string;
+    }
+
+    function isValidNotice(data) {
+      return data.title is string && data.title.size() > 0 &&
+             data.content is string && data.content.size() > 0 &&
+             data.publishedDate is string;
+    }
+
+    function isValidComplaint(data) {
+      return data.senderName is string && data.senderName.size() > 0 &&
+             data.type is string && data.type.size() > 0 &&
+             data.subject is string && data.subject.size() > 0 &&
+             data.details is string && data.details.size() > 0 &&
+             data.status in ['Pending', 'In Progress', 'Resolved'];
+    }
+
+    function isValidAuditLog(data) {
+      return data.adminEmail is string &&
+             data.action is string &&
+             data.entityType is string &&
+             data.entityId is string;
+    }
+
+    function isValidSystemConfig(data) {
+      return data.adminEmail is string && data.adminEmail.size() > 0 &&
+             data.villageName is string;
+    }
+
+    // --- Collection Rules ---
+
+    // Categories: Publicly readable, admin writable
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidCategory(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Donations: Publicly readable (Transparency), Public can create pending donations, admin can verify/reject
+    match /donations/{donationId} {
+      allow read: if true;
+      allow create: if (request.resource.data.isVerified == false && isValidDonation(request.resource.data)) ||
+                       (isAdmin() && isValidDonation(request.resource.data));
+      allow update: if isAdmin() && isValidDonation(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Expenses: Publicly readable (Transparency), admin manages multi-step lifecycle
+    match /expenses/{expenseId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidExpense(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Projects: Publicly readable, admin manages
+    match /projects/{projectId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidProject(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Notices: Publicly readable, admin publishes
+    match /notices/{noticeId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidNotice(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Complaints: Public can submit queries/complaints; Admin updates and responds
+    match /complaints/{complaintId} {
+      allow read: if true;
+      allow create: if isValidComplaint(request.resource.data) &&
+                       request.resource.data.status == 'Pending';
+      allow update: if isAdmin() && isValidComplaint(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // QR Codes for donations: Public read, Admin manage
+    match /qr_codes/{qrCodeId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Notifications: Public read, create if true, Admin manage
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    // Audit logs: Read only by Admin, created only by Admin, immutable (cannot update or delete)
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidAuditLog(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // System configuration: Publicly readable, admin writable
+    match /system/{configId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidSystemConfig(request.resource.data);
+    }
+  }
+}
+
